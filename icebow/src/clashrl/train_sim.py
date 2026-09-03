@@ -250,9 +250,17 @@ def train_sim(cfg, matches: int = 2000, resume: bool = False, seed: int = 0, env
 
         net.train()
         cq, ceq, gq = net(obs, hand, nxt, elx, thr)
-        q_sa = torch.where(play == 1,
-                           gq[:, 1] + cq.gather(1, card).squeeze(1) + ceq.gather(1, cell).squeeze(1),
-                           gq[:, 0])
+        card_q = cq.gather(1, card).squeeze(1)
+        ceq_card = ceq.gather(
+            1, card.view(-1, 1, 1).expand(-1, 1, ceq.shape[-1])
+        ).squeeze(1)
+        cell_q = ceq_card.gather(1, cell).squeeze(1)
+
+        q_sa = torch.where(
+            play == 1,
+            gq[:, 1] + card_q + cell_q,
+            gq[:, 0]
+        )
         with torch.no_grad():                                  # Double DQN (online selects, target evals)
             cqn, ceqn, gqn = net(nobs, nhand, nnxt, nelx, nthr)
             cqn = cqn.masked_fill(nhand < 0.5, float("-inf"))
@@ -268,7 +276,13 @@ def train_sim(cfg, matches: int = 2000, resume: bool = False, seed: int = 0, env
             cq2, ceq2, gq2 = target(nobs, nhand, nnxt, nelx, nthr)
             cq2 = cq2.masked_fill(nhand < 0.5, float("-inf"))
             ceq2 = ceq2.masked_fill(~cellmask_next, float("-inf"))
-            q_play_next = gq2[:, 1] + cq2.gather(1, sel_card).squeeze(1) + ceq2.gather(1, sel_cell).squeeze(1)
+            card_q2 = cq2.gather(1, sel_card).squeeze(1)
+            ceq2_card = ceq2.gather(
+                1, sel_card.view(-1, 1, 1).expand(-1, 1, ceq2.shape[-1])
+            ).squeeze(1)
+            cell_q2 = ceq2_card.gather(1, sel_cell).squeeze(1)
+
+            q_play_next = gq2[:, 1] + card_q2 + cell_q2
             v_next = torch.where(play_next, q_play_next, gq2[:, 0])
             y = rew + gpow * v_next * (1.0 - done)     # n-step: rew = sum gamma^j r_j, bootstrap gamma^k ahead
         loss = F.smooth_l1_loss(q_sa, y)
