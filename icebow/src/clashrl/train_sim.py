@@ -270,17 +270,23 @@ def train_sim(cfg, matches: int = 2000, resume: bool = False, seed: int = 0, env
             else:
                 any_next = torch.zeros_like(sel_card, dtype=torch.bool)
             cellmask_next = torch.where(any_next, allcells_mask.unsqueeze(0), yourhalf_mask.unsqueeze(0))
-            ceqn = ceqn.masked_fill(~cellmask_next, float("-inf"))
-            sel_cell = ceqn.argmax(1, keepdim=True)
-            play_next = (gqn[:, 1] + cqn.max(1).values + ceqn.max(1).values) > gqn[:, 0]
+            # The cell head emits one map PER CARD, so the deployable-cell mask applies to the
+            # SELECTED next-card's map only (anywhere ids -> all cells, else your half), not to the
+            # full (B, n_cards, n_cells) tensor. Reduce to that card first, then mask + argmax.
+            card_map_next = ceqn.gather(
+                1, sel_card.view(-1, 1, 1).expand(-1, 1, ceqn.shape[-1])
+            ).squeeze(1)                                   # (B, n_cells) map of the selected next-card
+            card_map_next = card_map_next.masked_fill(~cellmask_next, float("-inf"))
+            sel_cell = card_map_next.argmax(1, keepdim=True)
+            play_next = (gqn[:, 1] + cqn.max(1).values + card_map_next.max(1).values) > gqn[:, 0]
             cq2, ceq2, gq2 = target(nobs, nhand, nnxt, nelx, nthr)
             cq2 = cq2.masked_fill(nhand < 0.5, float("-inf"))
-            ceq2 = ceq2.masked_fill(~cellmask_next, float("-inf"))
             card_q2 = cq2.gather(1, sel_card).squeeze(1)
-            ceq2_card = ceq2.gather(
+            cell_map_q2 = ceq2.gather(
                 1, sel_card.view(-1, 1, 1).expand(-1, 1, ceq2.shape[-1])
-            ).squeeze(1)
-            cell_q2 = ceq2_card.gather(1, sel_cell).squeeze(1)
+            ).squeeze(1)                                   # (B, n_cells) map of the selected next-card
+            cell_map_q2 = cell_map_q2.masked_fill(~cellmask_next, float("-inf"))
+            cell_q2 = cell_map_q2.gather(1, sel_cell).squeeze(1)
 
             q_play_next = gq2[:, 1] + card_q2 + cell_q2
             v_next = torch.where(play_next, q_play_next, gq2[:, 0])
