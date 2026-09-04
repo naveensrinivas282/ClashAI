@@ -121,7 +121,7 @@ _RIVER_BOARD_Y = 0.5            # board-true river (the canonical render is draw
 
 
 class LiveMatchEnv:
-    def __init__(self, cfg):
+    def __init__(self, cfg, in_ch: int | None = None):
         self.cfg = cfg
         self.capture = WindowCapture(cfg.get("window", "title_contains", default=None),
                                      cfg.get("window", "region", default=None))
@@ -155,12 +155,18 @@ class LiveMatchEnv:
         # OBS-CANVAS FLIP: the image branch gains detect_obs's semantic channels when
         # observation.use_detector_canvas is on (gated on detect-eval's PRESENCE recall).
         from .detect_obs import canvas_enabled, obs_in_channels, CanvasStack, canvas_stack_len, canvas_stack_dt
-        self.use_canvas = canvas_enabled(cfg)
+        # The semantic canvas is fed only when the policy this env was built for was trained on it:
+        # the config gate decides what a NEW training run sees, the caller's `in_ch` (usually a
+        # checkpoint's) decides what THIS env must render -- the same rule play.py applies. train-rl
+        # passes the checkpoint's in_ch, so a pre-canvas 3-channel BC policy gets the 3-channel obs
+        # it expects instead of a mismatched 12-channel canvas.
+        self.use_canvas = canvas_enabled(cfg) and (in_ch or obs_in_channels(cfg)) > 3
         # CANVAS STACK: >1 carries the canvas as it looked canvas_stack_dt_s ago so the conv trunk
         # reads MOTION off the channel deltas. Sampled by TIMESTAMP because the act loop is
         # event-driven (wakes early on a new enemy), so consecutive decisions are NOT evenly spaced.
         self._canvas_stack = CanvasStack(canvas_stack_len(cfg), canvas_stack_dt(cfg))
-        self.obs_shape = (int(oh), int(ow), obs_in_channels(cfg))
+        self.obs_shape = (int(oh), int(ow),
+                          in_ch if in_ch is not None else obs_in_channels(cfg))
         self._last_obs = np.zeros(self.obs_shape, dtype=np.uint8)
         self.last_outcome: Optional[str] = None
         self.elixir = 0                 # your current elixir (0-10), updated each step

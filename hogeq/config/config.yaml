@@ -7,7 +7,7 @@
 
 window:
   title_contains: ""
-  region: [528, 49, 413, 904]
+  region: [527, 67, 415, 890]
 
 capture:
   work_width: 480                # frames scaled to this width for vision
@@ -124,7 +124,7 @@ buttons:
   chat_avoid_box: [0.0, 0.79, 0.185, 0.90]
 
 states:
-  home_menu:  {template: "home_menu.png",  threshold: 0.55}   # lowered: the "Daily Bonus" sub-banner + capture drift drop the Battle-button match (~0.6); nav taps where it locates it
+  home_menu:  {template: "home_menu.png",  threshold: 0.53}   # lowered: the "Daily Bonus" sub-banner + capture drift drop the Battle-button match (~0.6); nav taps where it locates it
   party_menu: {template: "party_menu.png", threshold: 0.80}
   # At OVERTIME the game replaces the 'Time left:' label with the red/orange OVERTIME plate, so
   # in_match.png alone reads UNKNOWN mid-OT (bot froze). Second entry = STRICT banner template:
@@ -136,7 +136,7 @@ states:
   # rounded plate; the old crop flatlined at ~0.49 on new footage). The OLD in_match.png stays
   # listed so pre-update recordings (verify / label / outcome mining) still read correctly.
   in_match:
-    threshold: 0.80
+    threshold: 0.70
     # ORDERED BY WHAT ACTUALLY FIRES (2026-08-15, measured over 757 sampled frames of
     # data/sessions/20260815_222309): in_match_v2.png matched 424 and in_match.png matched
     # ZERO. Since a state returns on its FIRST hit, having the dead template first cost a
@@ -209,7 +209,7 @@ observation:
   # coverage); LIVE builds them from the detector. Both GROW-safe: adding whitelist cards needs NO retrain.
   # Flipping this changes threat_dim (16 <-> 34 = 16 base + 10 identity + 8 memory) -> a FRESH train-sim +
   # train-rl (init train-rl from the SIM checkpoint so the wide block carries; NB train-bc caps threats at 16).
-  use_detector: true            # Stage-3 gate: add the identity + memory blocks (needs a trained detector live)
+  use_detector: false            # Stage-3 gate: add the identity + memory blocks (needs a trained detector live)
   # WATCH LINE for the identity block, in the normalised y where 0.5 is the RIVER and 1.0 is your king.
   # This was hard-coded to 0.5 ("only once it has CROSSED"), which meant an incoming win condition lit
   # its win_condition / building_targeting flags at depth ~0 -- the latest possible moment, after which
@@ -228,7 +228,7 @@ observation:
   # be heading at it + an urgency (nearest attacker's ETA). SIM builds it from ground truth (whitelist +
   # recall-noise scoped); LIVE from the detector's tagged tracks. Flipping this WIDENS threat_dim (+12 ->
   # 46 with the detector blocks) = a FRESH train-sim + re-label, so flip it at the NEXT from-scratch run.
-  use_interactions: true
+  use_interactions: false
   # CANONICAL RGB LIVE (2026-08-15). The image branch is rebuilt from OUR OWN detections in the
   # sim's palette instead of showing the real game pixels, so sim / BC-replay / live all present
   # ONE distribution to the conv trunk. Measured motivation: the same checkpoint never used
@@ -1146,7 +1146,7 @@ detect:
   # both decks meet the same opponents -- so this points at the icebow tree rather than
   # duplicating 10 GB of frames and 1.5 GB of weights per deck. Retraining the detector
   # there upgrades BOTH decks; nothing here writes to it.
-  weights: C:/Users/benpe/ClashBot/icebow/runs/detect/board-24-5/weights/best.pt
+  weights: null   # was a hardcoded absolute path from a different machine -- null = auto-pick the newest runs/detect/*/weights/best.pt
   dataset_dir: C:/Users/benpe/ClashBot/icebow/data/detect
   # INFERENCE RESOLUTION for the live detector. MUST match what the weights were trained at.
   # ultralytics' predict() defaults to 640 no matter what the model was fitted for, and every

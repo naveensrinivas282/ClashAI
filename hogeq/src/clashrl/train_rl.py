@@ -120,12 +120,11 @@ def train_rl(cfg, init: str | None = None) -> None:
     gw, gh = int(ckpt["grid"][0]), int(ckpt["grid"][1])
     n_cards, n_cells = int(ckpt["n_cards"]), int(ckpt["n_cells"])
     threat_dim = int(ckpt.get("threat_dim", 14))
-    # Image-branch width: 3 (RGB) or 3 + detect_obs's semantic canvas. Read from the CONFIG, not the
-    # checkpoint, because LiveMatchEnv builds its observation from the same gate -- a checkpoint from
-    # before the flip simply will not load here, which is the intended loud failure (flipping the
-    # canvas is a fresh-train event, exactly like widening threat_dim).
-    from .detect_obs import obs_in_channels
-    in_ch = obs_in_channels(cfg)
+    # Image-branch width: 3 (RGB) or 3 + detect_obs's semantic canvas. Read from the CHECKPOINT,
+    # like play.py does, because it decides what obs THIS net expects: a pre-canvas BC policy is
+    # 3-channel and the env must render 3-channel obs for it, while a canvas-trained sim policy is
+    # 12-channel and still gets the canvas. The config only gates what a FRESH training run sees.
+    in_ch = int(ckpt.get("in_ch", 3))
     deck = ckpt.get("deck")
 
     # Per-card elixir cost (by deck identity) so the policy can't select a card it can't PAY for --
@@ -268,7 +267,7 @@ def train_rl(cfg, init: str | None = None) -> None:
 
     nstep = _NStep(n_step, gamma)
 
-    env = LiveMatchEnv(cfg)
+    env = LiveMatchEnv(cfg, in_ch=in_ch)
     # ---- LIVE ROLLOUT SEARCH, shared with play.py (sim.live_search_enabled, OFF by default) ----
     # train-rl makes live decisions too, so the hook belongs here as well. DDQN is OFF-POLICY, so
     # transitions produced by a searcher are legitimate training data -- no importance ratio to

@@ -94,7 +94,7 @@ class InMatchGrace:
         return state
 
 
-def play(cfg) -> None:
+def play(cfg, policy_override=None) -> None:
     try:
         import torch
         from .model import PolicyNet
@@ -103,17 +103,23 @@ def play(cfg) -> None:
               "(see README) then retry.")
         return
 
-    ckpt_path = cfg.path(cfg.get("train", "checkpoint", default="data/policy.pt"))
-    rl_path = cfg.path(cfg.get("train", "rl_checkpoint", default="data/policy_rl.pt"))
-    sim_path = cfg.path(cfg.get("train", "sim_checkpoint", default="data/policy_sim.pt"))
-    if rl_path.exists():
-        ckpt_path = rl_path   # prefer the RL-fine-tuned policy when available
-    elif not ckpt_path.exists() and sim_path.exists():
-        # No BC checkpoint (or it is unusable) -> fall back to the simulator prior.
-        ckpt_path = sim_path
-    if not ckpt_path.exists():
-        print(f"[play] no policy at {ckpt_path}. Train one first with `train-bc`.")
-        return
+    if policy_override:
+        ckpt_path = cfg.path(policy_override)
+        if not ckpt_path.exists():
+            print(f"[play] --policy {policy_override} does not exist ({ckpt_path}).")
+            return
+    else:
+        ckpt_path = cfg.path(cfg.get("train", "checkpoint", default="data/policy.pt"))
+        rl_path = cfg.path(cfg.get("train", "rl_checkpoint", default="data/policy_rl.pt"))
+        sim_path = cfg.path(cfg.get("train", "sim_checkpoint", default="data/policy_sim.pt"))
+        if rl_path.exists():
+            ckpt_path = rl_path   # prefer the RL-fine-tuned policy when available
+        elif not ckpt_path.exists() and sim_path.exists():
+            # No BC checkpoint (or it is unusable) -> fall back to the simulator prior.
+            ckpt_path = sim_path
+        if not ckpt_path.exists():
+            print(f"[play] no policy at {ckpt_path}. Train one first with `train-bc`.")
+            return
 
     ckpt = torch.load(ckpt_path, map_location="cpu")
     gw, gh = int(ckpt["grid"][0]), int(ckpt["grid"][1])
