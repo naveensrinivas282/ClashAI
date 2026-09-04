@@ -52,18 +52,23 @@ def _memory_gate_inert(tracker) -> None:
 
 def _pick_device(cfg):
     import torch
+
     dev = cfg.get("train", "device", default="cuda")
+
     if dev != "cuda":
         return dev
-    if not torch.cuda.is_available():
-        return "cpu"
-    try:
-        _ = (torch.zeros(1, device="cuda") + 1).item()
-        return "cuda"
-    except Exception:  # noqa: BLE001
-        print("[train-rl] GPU present but this torch build can't run on it; using CPU "
-              "(install the cu128 build for your RTX 50-series GPU).")
-        return "cpu"
+
+    if torch.cuda.is_available():
+        try:
+            _ = (torch.zeros(1, device="cuda") + 1).item()
+            return "cuda"
+        except Exception:
+            print("[train-rl] CUDA unavailable; falling back to MPS/CPU.")
+
+    if torch.backends.mps.is_available():
+        return "mps"
+
+    return "cpu"
 
 
 def _build_net(cfg, device, n_cards, n_cells, threat_dim=14, in_ch=3):

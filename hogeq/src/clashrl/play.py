@@ -105,8 +105,12 @@ def play(cfg) -> None:
 
     ckpt_path = cfg.path(cfg.get("train", "checkpoint", default="data/policy.pt"))
     rl_path = cfg.path(cfg.get("train", "rl_checkpoint", default="data/policy_rl.pt"))
+    sim_path = cfg.path(cfg.get("train", "sim_checkpoint", default="data/policy_sim.pt"))
     if rl_path.exists():
         ckpt_path = rl_path   # prefer the RL-fine-tuned policy when available
+    elif not ckpt_path.exists() and sim_path.exists():
+        # No BC checkpoint (or it is unusable) -> fall back to the simulator prior.
+        ckpt_path = sim_path
     if not ckpt_path.exists():
         print(f"[play] no policy at {ckpt_path}. Train one first with `train-bc`.")
         return
@@ -246,7 +250,18 @@ def play(cfg) -> None:
     # here that would surface as a torch shape error (10-wide hand one-hots into a 9-card net) or,
     # worse, silent nonsense plays.
     _ckpt_deck = ckpt.get("deck")
-    if n_cards != len(vision.deck_keys) or (_ckpt_deck and list(_ckpt_deck) != list(vision.deck_keys)):
+    if n_cards != len(vision.deck_keys):
+        _mismatch = True
+    elif _ckpt_deck:
+        # Compare as sets, ignoring the ability card position: the ability is appended last by
+        # CardDB/AbilityIdentity, but the checkpoint may have stored it at a different index.
+        _ability_key = getattr(vision, "ability_key", None)
+        _ckpt_base = {k for k in _ckpt_deck if k != _ability_key}
+        _cfg_base = {k for k in vision.deck_keys if k != _ability_key}
+        _mismatch = _ckpt_base != _cfg_base
+    else:
+        _mismatch = False
+    if _mismatch:
         print(f"[play] checkpoint/deck MISMATCH -- {ckpt_path.name} was trained for:")
         print(f"[play]   ckpt deck ({n_cards}): {', '.join(map(str, _ckpt_deck or ['?'] * n_cards))}")
         print(f"[play]   config deck ({len(vision.deck_keys)}): {', '.join(vision.deck_keys)}")
