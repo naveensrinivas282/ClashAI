@@ -6,6 +6,7 @@ coordinates share the same pixel space.
 """
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -17,6 +18,8 @@ try:  # pragma: no cover - optional at import time
     import pygetwindow as gw
 except Exception:  # noqa: BLE001
     gw = None
+
+_IS_MACOS = sys.platform == "darwin"
 
 
 @dataclass
@@ -41,29 +44,77 @@ class WindowCapture:
             self.refresh_region()
 
     def refresh_region(self) -> Optional[Region]:
-        if self._explicit or gw is None or not self.title_contains:
+        if self._explicit:
             return self._region
-        needle = self.title_contains.lower()
-        wins = [
-            w for w in gw.getAllWindows()
-            if needle in (w.title or "").lower() and w.width > 100 and w.height > 100
-        ]
-        if wins:
-            w = wins[0]
-            # Google Play Games draws a CUSTOM title bar INSIDE the Win32 client area, so neither the
-            # window rect nor GetClientRect isolates the game render. Every normalized coordinate
-            # (hand slots, elixir bar, templates, taps) is calibrated to the RENDER area -> detect it
-            # from CONTENT: trim unsaturated chrome rows on top + black pillarbox columns, then sanity-
-            # check the aspect. Falls back to the client rect, then the window rect.
-            base = self._client_area(w) or Region(int(w.left), int(w.top), int(w.width), int(w.height))
+        if _IS_MACOS:
+            base = self._macos_window_bounds()
+        elif self.title_contains and gw is not None:
+            base = self._windows_window_bounds()
+        else:
+            base = None
+        if base is not None:
+            # The game render sits inside the window frame, and both platforms draw chrome (a
+            # title bar / sidebar) that every normalized coordinate is calibrated AWAY from -- so the
+            # region is detected from CONTENT: trim unsaturated chrome rows/columns + black
+            # pillarbox bars, then sanity-check the aspect. Falls back to the full window rect.
             render = self._render_area(base)
             self._render_locked = render is not None      # False -> grab() keeps retrying the scan
             self._region = render or base
         return self._region
 
+    def _windows_window_bounds(self) -> Optional[Region]:
+        """Windows: first top-level window whose title contains ``title_contains``."""
+        if gw is None or getattr(gw, "getAllWindows", None) is None:
+            return None
+        try:
+            needle = self.title_contains.lower()
+            wins = [
+                w for w in gw.getAllWindows()
+                if needle in (w.title or "").lower() and w.width > 100 and w.height > 100
+            ]
+        except Exception:  # noqa: BLE001
+            return None
+        if not wins:
+            return None
+        w = wins[0]
+        # Google Play Games draws a CUSTOM title bar INSIDE the Win32 client area, so neither the
+        # window rect nor GetClientRect isolates the game render -- but it is still worth dropping
+        # the OS title bar when we can.
+        return self._client_area(w) or Region(int(w.left), int(w.top), int(w.width), int(w.height))
+
+    def _macos_window_bounds(self) -> Optional[Region]:
+        """macOS: query the Quartz window server for an on-screen window whose title or owner name
+        contains ``title_contains``, returning its frame in TOP-LEFT-ORIGIN screen pixels (the same
+        coordinate space mss uses). No Win32 involved."""
+        if not self.title_contains:
+            return None
+        try:
+            from Quartz import (CGDisplayPixelsHigh, CGMainDisplayID, CGWindowListCopyWindowInfo,
+                                kCGNullWindowID, kCGWindowBounds, kCGWindowListOptionOnScreenOnly,
+                                kCGWindowName, kCGWindowOwnerName)
+            info = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
+        except Exception:  # noqa: BLE001
+            return None
+        if not info:
+            return None
+        needle = self.title_contains.lower()
+        screen_h = CGDisplayPixelsHigh(CGMainDisplayID())
+        for win in info:
+            owner = (win.get(kCGWindowOwnerName) or "") or ""
+            name = (win.get(kCGWindowName) or "") or ""
+            if needle in owner.lower() or needle in name.lower():
+                b = win.get(kCGWindowBounds) or {}
+                w, h = int(b.get("Width", 0)), int(b.get("Height", 0))
+                if w > 100 and h > 100:
+                    x, y = int(b.get("X", 0)), int(b.get("Y", 0))   # Quartz origin is bottom-left
+                    top = int(screen_h) - (y + h)                    # -> top-left for mss
+                    return Region(x, top, w, h)
+        return None
+
     @staticmethod
     def _client_area(w) -> Optional[Region]:
-        """The window's CLIENT area in physical screen pixels (drops the OS title bar/borders)."""
+        """The WIN32 client area in physical screen pixels (drops the OS title bar/borders).
+        Windows-only; returns None elsewhere (the plain window rect is used instead)."""
         try:
             import ctypes
             from ctypes import wintypes

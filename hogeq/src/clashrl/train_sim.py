@@ -232,6 +232,13 @@ def train_sim(cfg, matches: int = 2000, resume: bool = False, seed: int = 0, env
                 acts.append((1, ci, int(ceq_i.argmax())))
         return acts
 
+    def _sel_card_cell(ceq: "torch.Tensor", card: "torch.Tensor", cell: "torch.Tensor") -> "torch.Tensor":
+        """Index into 3-D cell logits (B, n_cards, n_cells) with (B,1) card and cell
+        indices, returning the scalar logit per batch element: (B,)."""
+        card_exp = card.unsqueeze(-1).expand(-1, -1, ceq.shape[-1])  # (B, 1, n_cells)
+        ceq_card = ceq.gather(1, card_exp).squeeze(1)               # (B, n_cells)
+        return ceq_card.gather(1, cell).squeeze(1)                  # (B,)
+
     def optimise():
         if len(replay) < max(min_replay, batch_size):
             return None
@@ -251,7 +258,7 @@ def train_sim(cfg, matches: int = 2000, resume: bool = False, seed: int = 0, env
         net.train()
         cq, ceq, gq = net(obs, hand, nxt, elx, thr)
         q_sa = torch.where(play == 1,
-                           gq[:, 1] + cq.gather(1, card).squeeze(1) + ceq.gather(1, cell).squeeze(1),
+                           gq[:, 1] + cq.gather(1, card).squeeze(1) + _sel_card_cell(ceq, card, cell),
                            gq[:, 0])
         with torch.no_grad():                                  # Double DQN (online selects, target evals)
             cqn, ceqn, gqn = net(nobs, nhand, nnxt, nelx, nthr)
@@ -262,13 +269,21 @@ def train_sim(cfg, matches: int = 2000, resume: bool = False, seed: int = 0, env
             else:
                 any_next = torch.zeros_like(sel_card, dtype=torch.bool)
             cellmask_next = torch.where(any_next, allcells_mask.unsqueeze(0), yourhalf_mask.unsqueeze(0))
-            ceqn = ceqn.masked_fill(~cellmask_next, float("-inf"))
-            sel_cell = ceqn.argmax(1, keepdim=True)
-            play_next = (gqn[:, 1] + cqn.max(1).values + ceqn.max(1).values) > gqn[:, 0]
+            # Per-card cell head: select the chosen card's (B, n_cells) map, mask + argmax
+            card_exp_n = sel_card.unsqueeze(-1).expand(-1, -1, n_cells)  # (B, 1, n_cells)
+            ceqn_card = ceqn.gather(1, card_exp_n).squeeze(1)           # (B, n_cells)
+            ceqn_card = ceqn_card.masked_fill(~cellmask_next, float("-inf"))
+            sel_cell = ceqn_card.argmax(1, keepdim=True)                # (B, 1)
+            # Gate decision: best card+cell Q vs wait. With per-card maps, sum each card's
+            # own logit + its best cell, then take the max over cards.
+            play_q = cqn + ceqn.max(2).values                           # (B, n_cards) + (B, n_cards)
+            play_next = (gqn[:, 1] + play_q.max(1).values) > gqn[:, 0]
             cq2, ceq2, gq2 = target(nobs, nhand, nnxt, nelx, nthr)
             cq2 = cq2.masked_fill(nhand < 0.5, float("-inf"))
-            ceq2 = ceq2.masked_fill(~cellmask_next, float("-inf"))
-            q_play_next = gq2[:, 1] + cq2.gather(1, sel_card).squeeze(1) + ceq2.gather(1, sel_cell).squeeze(1)
+            card_exp_t = sel_card.unsqueeze(-1).expand(-1, -1, n_cells)  # (B, 1, n_cells)
+            ceq2_card = ceq2.gather(1, card_exp_t).squeeze(1)           # (B, n_cells)
+            ceq2_card = ceq2_card.masked_fill(~cellmask_next, float("-inf"))
+            q_play_next = gq2[:, 1] + cq2.gather(1, sel_card).squeeze(1) + ceq2_card.gather(1, sel_cell).squeeze(1)
             v_next = torch.where(play_next, q_play_next, gq2[:, 0])
             y = rew + gpow * v_next * (1.0 - done)     # n-step: rew = sum gamma^j r_j, bootstrap gamma^k ahead
         loss = F.smooth_l1_loss(q_sa, y)

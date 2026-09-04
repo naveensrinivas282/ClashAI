@@ -524,10 +524,13 @@ def train_sim(cfg, matches: int = 2000, resume: bool = False, seed: int = 0, env
                 else:
                     cobs[i] = nobs; chand[i], cnxt[i] = nhand, nnxt
                     celx[i], cthr[i] = nelx, nthr
-            loss = optimise()
-            if loss is not None:
-                last_loss = loss
+            if step % 4 == 0:
+                loss = optimise()
+                if loss is not None:
+                    last_loss = loss
+
             step += 1
+
             if step % target_sync == 0:
                 target.load_state_dict(net.state_dict())
     except KeyboardInterrupt:

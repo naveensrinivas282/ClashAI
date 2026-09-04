@@ -6,8 +6,8 @@
 # =====================================================================
 
 window:
-  title_contains: "Clash Royale"
-  region: null   # 4 physical px [left, top, width, height] of the game render, or null to auto-detect the window by title (do NOT write [null] -- that is a 1-item list and errors)
+  title_contains: ""
+  region: [528, 49, 413, 904]
 
 capture:
   work_width: 480                # frames scaled to this width for vision
@@ -1002,6 +1002,7 @@ env:
 
 # --- Running the trained policy live -------------------------------------
 play:
+  ensure_focus: false
   act_period: 0.6                # LOWERED 1.0 -> 0.6 with sim.agent_dt (2026-08-20) -- see the note there.                # seconds between decisions. LOWERED 1.5 -> 1.0 = the sim's agent_dt (the policy
                                  # trained its reaction timing + per-step reward economics at 1.0s): between
                                  # decisions the model is BLIND, so this bounds its reaction time to a new threat.
