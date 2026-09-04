@@ -132,7 +132,7 @@ def _cmd_train_rl(args) -> None:
 
 def _cmd_play(args) -> None:
     from .play import play
-    play(_sized_config(args))
+    play(_sized_config(args), policy_override=getattr(args, "policy", None))
 
 
 def _cmd_train_sim(args) -> None:
@@ -877,6 +877,9 @@ def main() -> None:
     ply = sub.add_parser("play", help="run the trained policy live (needs torch + a trained policy)")
     ply.add_argument("--size", choices=["576", "432"], default=None,
                      help="board resolution 576=[18,32] / 432=[18,24]; overrides action.grid -- match your policy checkpoint")
+    ply.add_argument("--policy", default=None, metavar="CKPT",
+                     help="exact checkpoint to load (e.g. data/policy_rl.pt, data/policy_sim_best.pt, "
+                          "or any renamed .pt in data/). Overrides the rl > bc > sim auto-pick.")
     ply.set_defaults(func=_cmd_play)
 
     dia = sub.add_parser("diag", help="diagnose menu navigation: state-template match scores on the current screen")

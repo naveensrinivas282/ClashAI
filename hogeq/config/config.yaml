@@ -7,7 +7,7 @@
 
 window:
   title_contains: ""
-  region: [528, 49, 413, 904]
+  region: [527, 67, 415, 890]
 
 capture:
   work_width: 480                # frames scaled to this width for vision
@@ -1146,7 +1146,7 @@ detect:
   # both decks meet the same opponents -- so this points at the icebow tree rather than
   # duplicating 10 GB of frames and 1.5 GB of weights per deck. Retraining the detector
   # there upgrades BOTH decks; nothing here writes to it.
-  weights: C:/Users/benpe/ClashBot/icebow/runs/detect/board-24-5/weights/best.pt
+  weights: null   # was a hardcoded absolute path from a different machine -- null = auto-pick the newest runs/detect/*/weights/best.pt
   dataset_dir: C:/Users/benpe/ClashBot/icebow/data/detect
   # INFERENCE RESOLUTION for the live detector. MUST match what the weights were trained at.
   # ultralytics' predict() defaults to 640 no matter what the model was fitted for, and every
