@@ -12,9 +12,13 @@ window:
 capture:
   work_width: 480                # frames scaled to this width for vision
 
-# --- Hand card slots (normalized centres, from the trol calibration) ------
+# --- Hand card slots (normalized centres) ------
+# Recalibrated 2026-09-05 from session data/sessions/20260905_013900 (region
+# [527,67,415,890]): bright-blob centroid + deck-template matching agree on
+# cx ~ [0.31, 0.50, 0.69, 0.88], cy ~ 0.90. Old trol values (652x1041 capture)
+# sat ~0.015 too high on y (crop cut the card bottom, included tray above).
 hand:
-  slots: [[0.308, 0.887], [0.485, 0.887], [0.660, 0.884], [0.854, 0.884]]
+  slots: [[0.314, 0.902], [0.504, 0.902], [0.691, 0.902], [0.877, 0.902]]
   click_radius: 0.06            # a click near a slot's x, in the tray band, = selecting that card
   # Card-identity recognition: the policy acts on WHICH card identity to play (not
   # the tray slot, which cycles). An EVOLVED card is its own identity (`<key>_evo`)
@@ -56,11 +60,14 @@ hand:
   cache_ttl_s: 4.0              # max seconds a cached slot id may be served before a forced re-match
   # The "next card" preview sits to the LEFT of the tray and is drawn smaller. Feeding its
   # identity to the policy lets it plan cycles (hold a cheap card to line up a counter).
-  # The values below are an ESTIMATE -- calibrate with `run.py verify --hand`: the next-card
-  # box is drawn in cyan; nudge next_slot / next_card_w / next_card_h until it frames it.
-  next_slot: [0.090, 0.965]     # normalized centre of the next-card PORTRAIT (the card, below the "Next:" label)
-  next_card_w: 0.045            # half-width of the next-card crop
-  next_card_h: 0.030            # half-height of the next-card crop
+  # Recalibrated 2026-09-05 (same session as the hand slots): the changing card content in the
+  # preview region spans x ~0.046-0.151, y ~0.920-0.970 (temporal-variance over 2000 frames);
+  # the old estimate had the box over the elixir-bar row (y 0.965) where the crop was degenerate.
+  # The preview is a smaller, blue-tinted rendering, so rebuild templates/next after nudging:
+  #   run.py hand-templates && run.py verify --hand
+  next_slot: [0.098, 0.945]     # normalized centre of the next-card PORTRAIT (the card, below the "Next:" label)
+  next_card_w: 0.052            # half-width of the next-card crop
+  next_card_h: 0.025            # half-height of the next-card crop
   next_top_frac: 0.6            # match only the TOP fraction of the card (skip the elixir badge + "1sec" cycle timer)
   next_templates_dir: "templates/next"  # the next preview is a SMALLER, blue-tinted rendering -> its own template set
 

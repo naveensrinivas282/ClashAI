@@ -19,6 +19,7 @@ import numpy as np
 
 from .actions import ActionSpace
 from . import card_threat
+from . import detect_obs
 from . import interactions
 from .cards import CardDB
 from .threats import read_threat_window
@@ -137,6 +138,21 @@ def _identity_blocks(det, db, cfg, opp_mem, prev_frame, frame, dt):
     return ident, mem
 
 
+def _obs_sample(frame, ow, oh, use_canvas, per_slice, stack):
+    """[oh, ow, in_ch] uint8 observation for one labelled play, frame-aligned.
+
+    3-channel RGB arena below, and (when the canvas is on) the semantic canvas
+    stack appended as all-zero planes -- the live env's output with an empty
+    detection set. Resized with INTER_AREA exactly as the old RGB-only path did,
+    so the image branch content is unchanged for 3-channel runs.
+    """
+    img = cv2.resize(frame, (int(ow), int(oh)), interpolation=cv2.INTER_AREA)
+    if not use_canvas:
+        return img
+    zero = np.zeros((int(oh), int(ow), per_slice * stack), dtype=np.uint8)
+    return np.concatenate([img, zero], axis=2)
+
+
 def label_session(cfg, session: Path, debug: bool = False, det=None, db=None, wide: bool = False) -> int:
     meta, events, video = _load(session)
     if video is None:
@@ -154,6 +170,22 @@ def label_session(cfg, session: Path, debug: bool = False, det=None, db=None, wi
     ow, oh = cfg.get("observation", "arena_size", default=[64, 96])
     gw, gh = cfg.get("action", "grid", default=[18, 32])
     aspace = ActionSpace(cfg)                          # box-anchored tile grid (same mapping the policy uses)
+    # OBSERVATION CHANNELS (2026-09-05). The live env's image branch is `obs_in_channels(cfg)`
+    # wide: the RGB arena + (when use_detector_canvas) the semantic canvas stack. The dataset
+    # MUST carry the same width or train-bc trains a 3-channel net that train-rl/play then
+    # rebuild as 12-channel and the checkpoint shape mismatches. The canvas is produced offline
+    # per play-frame with all-zero planes when the detector isn't driving this label run --
+    # exactly what env._observe emits live with an empty detection set (detection_channels and
+    # predictive_channels both no-op to zeros), so the zero canvas is in-distribution, not junk.
+    in_ch = detect_obs.obs_in_channels(cfg)
+    use_canvas = detect_obs.canvas_enabled(cfg) and in_ch > 3
+    per_slice = (detect_obs.N_CHANNELS
+                 + (detect_obs.N_PRED if detect_obs.predictive_enabled(cfg) else 0)
+                 + (detect_obs.N_HP if detect_obs.hp_enabled(cfg) else 0))
+    canvas_stack = detect_obs.canvas_stack_len(cfg)
+    print(f"[label] obs image branch: {in_ch} channels "
+          f"({'RGB + ' + str(per_slice * canvas_stack) + '-ch zero canvas' if use_canvas else 'RGB-only'}); "
+          f"matches env.py obs_in_channels")
 
     plays = _extract_plays(events, region, slots, click_r, pair_timeout, a_top, a_bot)
 
@@ -196,7 +228,7 @@ def label_session(cfg, session: Path, debug: bool = False, det=None, db=None, wi
         if card < 0:                         # can't identify the card -> can't label by identity
             skipped += 1
             continue
-        obs.append(cv2.resize(frame, (int(ow), int(oh)), interpolation=cv2.INTER_AREA))
+        obs.append(_obs_sample(frame, ow, oh, use_canvas, per_slice, canvas_stack))
         gx, gy = aspace.coords_to_grid(p["nx"], p["ny"])
         acts.append([card, gx, gy, p["slot"]])
         hands.append(vision.hand_multihot(hand_ids))
